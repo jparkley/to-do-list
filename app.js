@@ -1,44 +1,163 @@
+
 const express = require("express");
 const bodyParser = require("body-parser");
-const date = require(__dirname + "/date.js");
+const _ = require("lodash");
+// const date = require(__dirname + "/date.js");
+const mongoose = require("mongoose");
+// const workItems = [];
 
 const app = express();
-const items = ["Install Woocommerce", "Install shipping zone plugin", "Design LnF", "Refactor EJS"];
-const workItems = [];
-
+app.set("view engine", "ejs");  // Template engine: EJS
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(express.static("public"));
 
-app.set("view engine", "ejs");
+
+// connect to MongoDB and create the item Schema and an instance of it(model)
+//mongoose.connect("mongodb://localhost:27017/todolistDB", { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect("mongodb+srv://admin-jjin:test-jjin@cluster0.pis4s.mongodb.net/todolistDB", { useNewUrlParser: true, useUnifiedTopology: true });
+
+const itemSchema = {
+  name: String
+};
+const Item = mongoose.model("Item", itemSchema);
+
+const item1 = new Item ({
+  name: "Install Woocommerce"
+});
+const item2 = new Item ({
+  name: "Install shipping zone plugin"
+});
+const item3 = new Item ({
+  name: "Design LnF"
+});
+const defaultItems = [item1, item2, item3];
+
+// Create a new schema / generate an instance of a new list document for a new custom router
+const listSchema = {
+  name: String,
+  items: [itemSchema]
+};
+const List = mongoose.model("List", listSchema);
+
 
 app.get("/", function(req, res){
-  const day = date.getDate();
-  res.render("list", {listTitle: day, newListItems: items});
-  //res.sendFile(__dirname + "/weekday.html");
+  // const day = date.getDate();
+
+  Item.find({}, function(err, foundItems) {
+    if (foundItems.length === 0) {
+      Item.insertMany(defaultItems, function(err){
+        if (err) {
+          console.log(err);
+        } else {
+          console.log("default - success!!");
+        }
+      });
+      res.render("/");
+    } else {
+        res.render("list", {listTitle: "Today", newListItems: foundItems});
+    }
+  });
 });
+
+
+app.get("/:customListName", function(req, res){
+
+    const customListName = _.capitalize(req.params.customListName);
+
+    console.log("custom name1: "+ customListName);
+
+    List.findOne({name: customListName}, function(err, foundList) {
+          if (!err) {
+            if(!foundList) {
+              console.log("not there so create one");
+              const list = new List({
+                name: customListName,
+                items: defaultItems
+              });
+              list.save(function(err, result) {
+                res.redirect("/" + customListName);
+              });
+
+            } else {
+              console.log(foundList);
+                res.render("list", {listTitle: foundList.name, newListItems:foundList.items});            }
+          } else {
+            console.log(err);
+          }
+      });
+});
+
 
 app.post("/", function(req, res) {
 
-  const item = req.body.newItem;
+  const listName = req.body.list;
+  const itemName = req.body.newItem;
 
-  if (req.body.list === 'Work List') {
-    workItems.push(item);
-    res.redirect("/work");
-  } else {
-    items.push(item);
+  const item = new Item({
+    name:itemName
+  });
+
+  if (listName === "Today") {
+    item.save();
     res.redirect("/");
+  } else {
+
+    List.findOne({name: listName}, function(err, foundList){
+      console.log(foundList);
+      foundList.items.push(item);
+      foundList.save();
+      res.redirect("/" + listName);
+    });
   }
+
+
+  // if (req.body.list === 'Work List') {
+  //   workItems.push(item);
+  //   res.redirect("/work");
+  // } else {
+  //   items.push(item);
+  //   res.redirect("/");
+  // }
 });
 
-app.get("/work", function(req, res) {
-  res.render("list", {listTitle: "Work List", newListItems: workItems});
+
+
+
+app.post("/delete", function(req, res){
+  const checkedItemId = req.body.checkbox;
+  const listName = req.body.listName;
+  console.log(listName);
+
+  if (listName === "Today") {
+    Item.findByIdAndRemove(checkedItemId, function(err){
+      if(!err) {
+        console.log("success in deleting");
+        res.redirect("/");
+      }
+    });
+  } else {
+    List.findOneAndUpdate({name: listName}, {
+      $pull: {items: {_id: checkedItemId}}}, function(err, foundList) {
+      if (!err) {
+        res.redirect("/" + listName);
+      }
+    });
+
+  }
+
+  //console.log(req.body.checkbox);
 });
 
-app.post("/work", function(req, res) {
-  const item = req.body.newItem;
-  workItems.push(item);
-  res.redirect("/work");
-});
+
+// app.get("/work", function(req, res) {
+//   res.render("list", {listTitle: "Work List", newListItems: workItems});
+// });
+//
+// app.post("/work", function(req, res) {
+//   const item = req.body.newItem;
+//   workItems.push(item);
+//   res.redirect("/work");
+// });
 
 app.get("/about", function(req, res) {
   res.render("about");
